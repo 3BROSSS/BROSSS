@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TANK CLASSIC - CHUNIBYO HARDCORE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            margin: 0;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Press Start 2P', cursive;
+            overflow: hidden;
+            touch-action: none;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 10px;
+            height: 100%;
+        }
+
+        canvas {
+            background-color: #000;
+            border: 4px solid #333;
+            image-rendering: pixelated;
+            width: 90vw;
+            height: 90vw;
+            max-width: 420px;
+            max-height: 420px;
+        }
+
+        .controls-container {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 40px;
+            margin-top: auto;
+            margin-bottom: 40px;
+            min-height: 180px;
+        }
+
+        .joystick-base {
+            width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            position: relative;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .joystick-handle {
+            width: 50px; height: 50px;
+            background: #fff;
+            border-radius: 50%;
+            position: absolute;
+            box-shadow: 0 0 10px #fff;
+        }
+
+        .fire-btn {
+            width: 100px; height: 100px;
+            background: rgba(255, 0, 0, 0.4);
+            border: 4px solid #fff;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.5);
+        }
+        .fire-btn:active { background: #f00; transform: scale(0.9); }
+
+        .info-panel {
+            width: 90vw; max-width: 420px;
+            display: flex; justify-content: space-between;
+            align-items: center;
+            font-size: 8px; margin-bottom: 10px;
+        }
+
+        .pause-btn {
+            background: #444; padding: 5px 10px; border: 2px solid #fff; cursor: pointer;
+            font-size: 8px;
+            user-select: none;
+        }
+
+        .mode-btn {
+            font-size: 8px; padding: 12px; border: 2px solid #555; cursor: pointer;
+        }
+        .mode-btn.active { border-color: #fff; color: #fff; }
+
+        .hidden { display: none !important; }
+        
+        #pause-overlay {
+            z-index: 60;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- 頂部資訊面板 -->
+        <div id="info-panel" class="info-panel hidden">
+            <div class="flex flex-col gap-1">
+                <div>SCORE:<span id="score-display">0000</span></div>
+                <div>LEVEL:<span id="level-display">01</span></div>
+                <div class="text-green-400">LIVES:<span id="lives-display">4</span></div>
+            </div>
+            <div id="boss-info" class="hidden text-red-500">BOSS:<span id="boss-hp">0</span></div>
+            <button id="pause-btn" class="pause-btn">PAUSE</button>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- 主選單畫面 -->
+        <div id="status-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black border-4 border-white mx-4 my-10 z-50">
+            <h1 id="status-title" class="text-xl mb-6 text-yellow-400">TANK CLASSIC</h1>
+            <div class="flex gap-4 mb-6">
+                <div id="mode-pc" class="mode-btn active">PC MODE</div>
+                <div id="mode-mobile" class="mode-btn">MOBILE MODE</div>
+            </div>
+            <p id="status-msg" class="text-[8px] text-gray-400 mb-10 text-center px-4">WASD TO MOVE / SPACE TO FIRE</p>
+            <button id="start-btn" class="bg-white text-black px-12 py-6 font-bold text-xs border-b-4 border-gray-400">START GAME</button>
+        </div>
+
+        <!-- 暫停覆蓋畫面 -->
+        <div id="pause-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/80 hidden z-[60]">
+            <h2 class="text-2xl text-white mb-8">PAUSED</h2>
+            <div class="flex flex-col gap-4 w-60">
+                <button id="resume-btn" class="bg-white text-black py-4 font-bold text-xs active:scale-95">RESUME</button>
+                <button id="menu-btn" class="bg-red-600 text-white py-4 font-bold text-xs active:scale-95 border-b-4 border-red-800">MAIN MENU</button>
+            </div>
+        </div>
+
+        <!-- 手機模式控制搖桿與按鍵 -->
+        <div id="mobile-controls" class="controls-container hidden">
+            <div id="joystick-base" class="joystick-base">
+                <div id="joystick-handle" class="joystick-handle"></div>
+            </div>
+            <div id="btn-fire" class="fire-btn">
+                <span class="text-[14px] font-bold">FIRE</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 音效引擎
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioCtx();
+        function playSfx(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+            if (type === 'shoot') {
+                osc.type = 'square'; osc.frequency.setValueAtTime(450, now);
+                osc.frequency.exponentialRampToValueAtTime(80, now + 0.15);
+                gain.gain.setValueAtTime(0.05, now); gain.gain.linearRampToValueAtTime(0, now + 0.15);
+                osc.start(); osc.stop(now + 0.15);
+            } else if (type === 'hit') {
+                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(160, now);
+                gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.05);
+                osc.start(); osc.stop(now + 0.05);
+            } else if (type === 'explode') {
+                osc.type = 'square'; osc.frequency.setValueAtTime(55, now);
+                gain.gain.setValueAtTime(0.2, now); gain.gain.linearRampToValueAtTime(0, now + 0.35);
+                osc.start(); osc.stop(now + 0.35);
+            }
+        }
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const TILE_SIZE = 32;
+        const GRID_SIZE = 13;
+        canvas.width = TILE_SIZE * GRID_SIZE;
+        canvas.height = TILE_SIZE * GRID_SIZE;
+
+        let gameState = 'IDLE'; 
+        let controlMode = 'pc'; 
+        let currentLevel = 1;
+        let score = 0;
+        let lives = 4; 
+        let player, enemies = [], bullets = [], walls = [], particles = [];
+        const keys = {};
+
+        // 粒子系統
+        class Particle {
+            constructor(x, y, color, speedScale = 1.0, decayScale = 1.0) {
+                this.x = x; this.y = y; this.color = color;
+                this.vx = (Math.random()-0.5) * 10 * speedScale;
+                this.vy = (Math.random()-0.5) * 10 * speedScale;
+                this.life = 1.0;
+                this.decay = (0.02 + Math.random() * 0.03) * decayScale;
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy;
+                this.life -= this.decay;
+                return this.life > 0;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 4;
+                ctx.shadowColor = this.color;
+                ctx.fillRect(this.x, this.y, 3, 3);
+                ctx.restore();
+            }
+        }
+
+        function drawClassicTank(x, y, size, color, dir, recoil, isBoss) {
+            ctx.save();
+            ctx.translate(x + size/2, y + size/2);
+            ctx.rotate(Math.atan2(dir.y, dir.x));
+            const rOffset = -recoil;
+            ctx.fillStyle = color;
+            ctx.fillRect(-size/2, -size/2, size, size/4);
+            ctx.fillRect(-size/2, size/4, size, size/4);
+            ctx.fillRect(-size/3 + rOffset, -size/4, size*0.6, size/2);
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(-size/6 + rOffset, -size/6, size/3, size/3);
+            ctx.fillStyle = color;
+            ctx.fillRect(rOffset, -size/10, size/2 + (isBoss?10:5), size/5);
+            ctx.restore();
+        }
+
+        class Tank {
+            constructor(x, y, color, isPlayer = false, bossHp = 0) {
+                this.x = x; this.y = y; this.color = color; this.isPlayer = isPlayer;
+                this.isBoss = bossHp > 0;
+                this.size = this.isBoss ? TILE_SIZE*1.8 : TILE_SIZE*0.85;
+                this.hp = bossHp || 1;
+                this.dir = {x: 0, y: isPlayer ? -1 : 1};
+                this.cooldown = 0;
+                this.recoil = 0;
+                // 難度+20%：敵軍小怪基礎移動速度由 1.7 提升至 1.9，追擊走位更有感
+                this.speed = this.isBoss ? 1.2 : (isPlayer ? 2.8 : 1.9 + currentLevel*0.04);
+            }
+            draw() {
+                drawClassicTank(this.x, this.y, this.size, this.color, this.dir, this.recoil, this.isBoss);
+                if(gameState === 'PLAYING' && this.recoil > 0) this.recoil *= 0.8;
+            }
+            move(dx, dy) {
+                if(dx===0 && dy===0) return;
+                this.dir = {x: dx, y: dy};
+                let nx = this.x + dx*this.speed, ny = this.y + dy*this.speed;
+                if(nx<0 || nx+this.size>canvas.width || ny<0 || ny+this.size>canvas.height) return;
+                if(!walls.some(w => nx < w.x + w.w && nx + this.size > w.x && ny < w.y + w.h && ny + this.size > w.y)) {
+                    this.x = nx; this.y = ny;
+                }
+            }
+            shoot() {
+                if(this.cooldown > 0) return;
+                bullets.push(new Bullet(
+                    this.x+this.size/2+this.dir.x*15,
+                    this.y+this.size/2+this.dir.y*15,
+                    this.dir.x,
+                    this.dir.y,
+                    this.isPlayer ? 'p' : 'e',
+                    this.isBoss
+                ));
+                this.recoil = 8;
+                // 難度+20%：小怪裝彈時間大幅縮短 (基本冷卻從 70 縮短為 56，開火頻率上升)
+                this.cooldown = this.isBoss ? 30 : (this.isPlayer ? 18 : Math.max(25, 56 - currentLevel * 2));
+                if(this.isPlayer) playSfx('shoot');
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, dx, dy, owner, isBoss) {
+                this.x = x; this.y = y; this.dx = dx; this.dy = dy; this.owner = owner; this.isBoss = isBoss;
+                this.speed = 6;
+                this.pulseTimer = 0;
+                if (this.owner === 'p') {
+                    this.color = '#00FFCC'; 
+                } else {
+                    this.color = this.isBoss ? '#FF0033' : '#CC00FF'; 
+                }
+            }
+            update() {
+                this.x += this.dx * this.speed;
+                this.y += this.dy * this.speed;
+                this.pulseTimer += 0.2;
+                if (Math.random() < 0.3) {
+                    particles.push(new Particle(this.x, this.y, this.color, 0.3, 1.5));
+                }
+                return !(this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height);
+            }
+            draw() {
+                ctx.save();
+                ctx.shadowBlur = this.isBoss ? 15 : 8;
+                ctx.shadowColor = this.color;
+                ctx.fillStyle = this.color;
+
+                if (this.isBoss) {
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(this.pulseTimer);
+                    ctx.strokeStyle = '#FF3300';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 7 + Math.sin(this.pulseTimer)*2, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.fillStyle = '#000000';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.owner === 'p') {
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(Math.atan2(this.dy, this.dx));
+                    ctx.beginPath();
+                    ctx.moveTo(8, 0);
+                    ctx.lineTo(-4, -3);
+                    ctx.lineTo(-2, 0);
+                    ctx.lineTo(-4, 3);
+                    ctx.closePath();
+                    ctx.fill();
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 3.5 + Math.sin(this.pulseTimer)*1, 0, Math.PI*2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        function spawnExplosion(x, y, color, count = 10, speedScale = 1.0) {
+            for(let i=0; i<count; i++) particles.push(new Particle(x, y, color, speedScale));
+        }
+
+        function initLevel(lv) {
+            walls = []; enemies = []; bullets = []; particles = [];
+            player = new Tank(canvas.width/2 - 14, canvas.height - 50, '#00A800', true);
+            const isBoss = lv % 5 === 0;
+            if(isBoss) {
+                enemies.push(new Tank(canvas.width/2-28, 40, '#A80000', false, 15 + lv*2));
+                document.getElementById('boss-info').classList.remove('hidden');
+                document.getElementById('boss-hp').innerText = enemies[0].hp;
+            } else {
+                document.getElementById('boss-info').classList.add('hidden');
+                for(let i=0; i<3 + Math.floor(lv/2); i++) {
+                    enemies.push(new Tank(Math.random()*(canvas.width-TILE_SIZE), 40, '#A800A8'));
+                }
+            }
+            for(let i=0; i<35; i++) {
+                let rx = Math.floor(Math.random()*GRID_SIZE)*TILE_SIZE, ry = Math.floor(Math.random()*(GRID_SIZE-4)+2)*TILE_SIZE;
+                if(Math.abs(rx - player.x) < 60 && Math.abs(ry - player.y) < 60) continue;
+                walls.push({x: rx, y: ry, w: TILE_SIZE, h: TILE_SIZE});
+            }
+            document.getElementById('level-display').innerText = lv.toString().padStart(2, '0');
+            document.getElementById('lives-display').innerText = lives;
+            document.getElementById('score-display').innerText = score.toString().padStart(4, '0');
+        }
+
+        function togglePause() {
+            if (gameState === 'PLAYING') {
+                gameState = 'PAUSED';
+                document.getElementById('pause-overlay').classList.remove('hidden');
+                document.getElementById('mobile-controls').classList.add('hidden'); 
+                document.getElementById('pause-btn').innerText = 'RESUME';
+            } else if (gameState === 'PAUSED') {
+                gameState = 'PLAYING';
+                document.getElementById('pause-overlay').classList.add('hidden');
+                if (controlMode === 'mobile') {
+                    document.getElementById('mobile-controls').classList.remove('hidden'); 
+                }
+                document.getElementById('pause-btn').innerText = 'PAUSE';
+            }
+        }
+
+        function goToMainMenu() {
+            gameState = 'IDLE';
+            currentLevel = 1;
+            score = 0;
+            lives = 4;
+            document.getElementById('pause-overlay').classList.add('hidden');
+            document.getElementById('status-overlay').classList.remove('hidden');
+            document.getElementById('mobile-controls').classList.add('hidden'); 
+            document.getElementById('info-panel').classList.add('hidden'); 
+            document.getElementById('pause-btn').innerText = 'PAUSE';
+            document.getElementById('joystick-handle').style.transform = `translate(0,0)`;
+            keys['up'] = keys['down'] = keys['left'] = keys['right'] = false;
+        }
+
+        function update() {
+            if(gameState !== 'PLAYING') return;
+            let dx=0, dy=0;
+            if(keys['up'] || keys['w']) dy=-1; else if(keys['down'] || keys['s']) dy=1; 
+            else if(keys['left'] || keys['a']) dx=-1; else if(keys['right'] || keys['d']) dx=1;
+            player.move(dx, dy);
+            if(keys['fire'] || keys[' ']) player.shoot();
+            if(player.cooldown > 0) player.cooldown--;
+
+            enemies.forEach(e => {
+                // 難度+20%：敵人跟隨玩家坐標轉向進行偷襲的頻率從 2% 提升至 2.5%
+                if(Math.random() < 0.025) {
+                    let diffX = player.x - e.x;
+                    let diffY = player.y - e.y;
+                    if(Math.abs(diffX) > Math.abs(diffY)) {
+                        e.tdir = { x: Math.sign(diffX), y: 0 };
+                    } else {
+                        e.tdir = { x: 0, y: Math.sign(diffY) };
+                    }
+                } else if(Math.random() < 0.02) {
+                    e.tdir = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}][Math.floor(Math.random()*4)];
+                }
+                
+                if(e.tdir) e.move(e.tdir.x, e.tdir.y);
+
+                let linedUp = false;
+                if (Math.abs(player.x - e.x) < TILE_SIZE && ((e.dir.y > 0 && player.y > e.y) || (e.dir.y < 0 && player.y < e.y))) {
+                    linedUp = true;
+                }
+                if (Math.abs(player.y - e.y) < TILE_SIZE && ((e.dir.x > 0 && player.x > e.x) || (e.dir.x < 0 && player.x < e.x))) {
+                    linedUp = true;
+                }
+
+                // 難度+20%：直線對齊時，鎖定瞄準射擊機率由 6% 提升至 7.5%
+                if (linedUp) {
+                    if (Math.random() < 0.075) e.shoot(); 
+                } else {
+                    if (Math.random() < 0.02) e.shoot();
+                }
+
+                if (e.cooldown > 0) e.cooldown--;
+            });
+
+            particles = particles.filter(p => p.update());
+            bullets = bullets.filter(b => b.update());
+
+            for(let i=bullets.length-1; i>=0; i--) {
+                let b = bullets[i];
+                
+                let hit = false;
+                for(let j=walls.length-1; j>=0; j--) {
+                    let w = walls[j];
+                    if(b.x > w.x && b.x < w.x+w.w && b.y > w.y && b.y < w.y+w.h) {
+                        playSfx('hit');
+                        if (b.isBoss) {
+                            let destroyRadius = TILE_SIZE * 1.6;
+                            spawnExplosion(b.x, b.y, '#FF0033', 20, 1.5);
+                            for (let k = walls.length - 1; k >= 0; k--) {
+                                let ow = walls[k];
+                                let dist = Math.sqrt(Math.pow((ow.x + TILE_SIZE/2) - b.x, 2) + Math.pow((ow.y + TILE_SIZE/2) - b.y, 2));
+                                if (dist <= destroyRadius) {
+                                    spawnExplosion(ow.x + TILE_SIZE/2, ow.y + TILE_SIZE/2, '#A85400', 6);
+                                    walls.splice(k, 1);
+                                }
+                            }
+                        } else {
+                            spawnExplosion(b.x, b.y, b.color, 8);
+                            spawnExplosion(b.x, b.y, '#A85400', 5);
+                            walls.splice(j, 1);
+                        }
+                        bullets.splice(i, 1); hit = true; break;
+                    }
+                }
+                if(hit) continue;
+
+                if(b.owner === 'e') {
+                    if(b.x > player.x && b.x < player.x+player.size && b.y > player.y && b.y < player.y+player.size) {
+                        spawnExplosion(player.x+player.size/2, player.y+player.size/2, '#00FFCC', 35, 1.5);
+                        playSfx('explode'); 
+                        handlePlayerDeath();
+                        return; 
+                    }
+                } else {
+                    for(let j=enemies.length-1; j>=0; j--) {
+                        let e = enemies[j];
+                        if(b.x > e.x && b.x < e.x+e.size && b.y > e.y && b.y < e.y+e.size) {
+                            e.hp--; bullets.splice(i,1); playSfx('hit');
+                            spawnExplosion(b.x, b.y, b.color, 10);
+                            if(e.isBoss) document.getElementById('boss-hp').innerText = e.hp;
+                            if(e.hp <= 0) {
+                                spawnExplosion(e.x+e.size/2, e.y+e.size/2, e.color, 30, 1.8);
+                                playSfx('explode');
+                                enemies.splice(j,1); score += (e.isBoss ? 500 : 100);
+                                document.getElementById('score-display').innerText = score.toString().padStart(4, '0');
+                                if(enemies.length === 0) endGame(true);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        function handlePlayerDeath() {
+            lives--;
+            document.getElementById('lives-display').innerText = lives;
+            if (lives > 0) {
+                gameState = 'IDLE';
+                document.getElementById('status-overlay').classList.remove('hidden');
+                document.getElementById('info-panel').classList.add('hidden'); 
+                document.getElementById('mobile-controls').classList.add('hidden'); 
+                document.getElementById('status-title').innerText = "WASTED";
+                document.getElementById('status-msg').innerText = "YOU LOST A LIFE!";
+                document.getElementById('start-btn').innerText = "TRY AGAIN";
+            } else {
+                endGame(false);
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = '#000'; ctx.fillRect(0,0,canvas.width,canvas.height);
+            walls.forEach(w => { 
+                ctx.fillStyle = '#A85400'; ctx.fillRect(w.x+1, w.y+1, w.w-2, w.h-2);
+                ctx.fillStyle = '#000'; ctx.fillRect(w.x+1, w.y+w.h/2, w.w-2, 2);
+            });
+            particles.forEach(p => p.draw());
+            if(player && lives > 0) player.draw();
+            enemies.forEach(e => e.draw());
+            bullets.forEach(b => b.draw());
+        }
+
+        function endGame(win) {
+            gameState = 'IDLE';
+            document.getElementById('status-overlay').classList.remove('hidden');
+            document.getElementById('info-panel').classList.add('hidden'); 
+            document.getElementById('mobile-controls').classList.add('hidden'); 
+            if(win) {
+                document.getElementById('status-title').innerText = "CLEAR";
+                document.getElementById('status-msg').innerText = `STAGE ${currentLevel} COMPLETED`;
+                document.getElementById('start-btn').innerText = "NEXT LEVEL";
+                currentLevel++;
+            } else {
+                document.getElementById('status-title').innerText = "GAME OVER";
+                document.getElementById('status-msg').innerText = "ALL LIVES EXHAUSTED";
+                document.getElementById('start-btn').innerText = "RESTART ALL";
+                currentLevel = 1; 
+                score = 0; 
+                lives = 4; 
+            }
+        }
+
+        function loop() { 
+            update(); 
+            draw(); 
+            requestAnimationFrame(loop); 
+        }
+
+        window.onload = () => {
+            const overlay = document.getElementById('status-overlay');
+            const mobileControls = document.getElementById('mobile-controls');
+            const joyBase = document.getElementById('joystick-base');
+            const joyHandle = document.getElementById('joystick-handle');
+            const statusMsg = document.getElementById('status-msg');
+
+            document.getElementById('mode-pc').onclick = () => {
+                controlMode = 'pc';
+                document.getElementById('mode-pc').classList.add('active');
+                document.getElementById('mode-mobile').classList.remove('active');
+                mobileControls.classList.add('hidden');
+                statusMsg.innerText = "WASD TO MOVE / SPACE TO FIRE";
+            };
+            document.getElementById('mode-mobile').onclick = () => {
+                controlMode = 'mobile';
+                document.getElementById('mode-mobile').classList.add('active');
+                document.getElementById('mode-pc').classList.remove('active');
+                mobileControls.classList.add('hidden');
+                statusMsg.innerText = "JOYSTICK TO MOVE / FIRE TO SHOOT";
+            };
+
+            document.getElementById('start-btn').onclick = () => {
+                if(audioCtx.state === 'suspended') audioCtx.resume();
+                overlay.classList.add('hidden');
+                document.getElementById('info-panel').classList.remove('hidden'); 
+                if(controlMode === 'mobile') mobileControls.classList.remove('hidden');
+                initLevel(currentLevel);
+                gameState = 'PLAYING';
+            };
+
+            document.getElementById('pause-btn').onclick = (e) => {
+                e.stopPropagation();
+                togglePause();
+            };
+            document.getElementById('resume-btn').onclick = (e) => {
+                e.stopPropagation();
+                togglePause();
+            };
+            document.getElementById('menu-btn').onclick = (e) => {
+                e.stopPropagation();
+                goToMainMenu();
+            };
+
+            const moveJoy = (e) => {
+                e.preventDefault();
+                if (gameState !== 'PLAYING') return;
+                const t = e.touches ? e.touches[0] : e;
+                const r = joyBase.getBoundingClientRect();
+                const cx = r.left + r.width/2, cy = r.top + r.height/2;
+                let dx = t.clientX - cx, dy = t.clientY - cy;
+                const d = Math.sqrt(dx*dx+dy*dy), md = r.width/2;
+                if(d > md) { dx *= md/d; dy *= md/d; }
+                joyHandle.style.transform = `translate(${dx}px, ${dy}px)`;
+                keys['up'] = keys['down'] = keys['left'] = keys['right'] = false;
+                if(d > 10) {
+                    if(Math.abs(dx)>Math.abs(dy)) keys[dx>0?'right':'left']=true;
+                    else keys[dy>0?'down':'up']=true;
+                }
+            };
+
+            joyBase.addEventListener('touchstart', moveJoy, {passive:false});
+            joyBase.addEventListener('touchmove', moveJoy, {passive:false});
+            joyBase.addEventListener('touchend', () => {
+                joyHandle.style.transform = `translate(0,0)`;
+                keys['up'] = keys['down'] = keys['left'] = keys['right'] = false;
+            });
+            
+            const fireBtn = document.getElementById('btn-fire');
+            fireBtn.addEventListener('touchstart', (e) => { 
+                e.preventDefault(); 
+                if (gameState === 'PLAYING') keys['fire']=true; 
+            }, {passive:false});
+            fireBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys['fire']=false; }, {passive:false});
+
+            window.addEventListener('keydown', e => { 
+                keys[e.key.toLowerCase().replace('arrow','')]=true; keys[e.key]=true; 
+            });
+            window.addEventListener('keyup', e => { keys[e.key.toLowerCase().replace('arrow','')]=false; keys[e.key]=false; });
+
+            loop();
+        };
+    </script>
+</body>
+</html>
